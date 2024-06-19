@@ -5,8 +5,10 @@ authors = ["Mohammadreza Farkhondeh mohammr.farkhonde12@sharif.edu"]
 edition = "2021"
 
 [dependencies]
-yew = { version = "0.20", features = ["csr"] }
-web-sys = "0.3"
+yew = { version = "0.21", features = ["csr"] }
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "CanvasRenderingContext2d"] }
+gloo-timers = "0.3"
 
 [lib]
 crate-type = ["cdylib"]
