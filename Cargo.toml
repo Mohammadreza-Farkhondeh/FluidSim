@@ -1,0 +1,12 @@
+[package]
+name = "fluid_sim"
+version = "0.0.1"
+authors = ["Mohammadreza Farkhondeh mohammr.farkhonde12@sharif.edu"]
+edition = "2021"
+
+[dependencies]
+yew = { version = "0.20", features = ["csr"] }
+web-sys = "0.3"
+
+[lib]
+crate-type = ["cdylib"]
