@@ -4,11 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FluidSim</title>
-    <link rel="stylesheet" href="assets/style.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        canvas {
+            border: 1px solid black;
+            margin-top: 20px;
+        }
+
+        input[type="range"] {
+            width: 300px;
+        }
+
+        #control-panel {
+            display: flex;
+            flex-direction: column;
+            margin: 20px;
+        }
+    </style>
 </head>
 <body>
     <div id="app">
         <p>Loading FluidSim...</p>
+        <canvas id="fluidCanvas"></canvas>
     </div>
 
 </body>
