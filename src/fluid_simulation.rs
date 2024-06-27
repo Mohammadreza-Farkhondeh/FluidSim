@@ -22,50 +22,39 @@ impl FluidSimulation {
     }
 
     pub fn step(&mut self, dt: f32, diff: f32) {
-        println!("Starting step function with dt = {} and diff = {}", dt, diff);
-
         self.advect(dt);
+        
         self.diffuse(diff, dt);
-        self.apply_forces(0.0, -9.8, 0.1, 50, 50);
+        
+        // Apply a downward gravitational force uniformly
+        self.apply_forces(0.0, 9.8, dt); 
+        
         self.project();
+        
     }
 
-    pub fn add_density(&mut self, x: usize, y: usize, amount: f32) {
-        if let Some(index) = self.index(x, y) {
-            self.density[index] += amount;
-        }
-    }
 
     pub fn add_velocity(&mut self, x: usize, y: usize, amount_x: f32, amount_y: f32) {
-        if let Some(index) = self.index(x, y) {
+        let index = self.index(x, y);
+        if index < self.velocity_x.len() && index < self.velocity_y.len() {
             self.velocity_x[index] += amount_x;
             self.velocity_y[index] += amount_y;
         }
     }
 
-    pub fn apply_forces(
-        &mut self,
-        force_x: f32,
-        force_y: f32,
-        source_density: f32,
-        x: usize,
-        y: usize,
-    ) {
-        if let Some(idx) = self.index(x, y) {
-            self.velocity_x[idx] += force_x;
-            self.velocity_y[idx] += force_y;
-            self.density[idx] += source_density;
+    pub fn apply_forces(&mut self, force_x: f32, force_y: f32, dt: f32) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let idx = y * self.width + x;
+                self.velocity_x[idx] += force_x * dt;
+                self.velocity_y[idx] += force_y * dt;
+            }
         }
     }
+    
 
-    fn index(&self, x: usize, y: usize) -> Option<usize> {
-        assert!(x < self.width && y < self.height, "Index out of bounds: ({}, {})", x, y);
-
-        if x < self.width && y < self.height {
-            Some(x + y * self.width)
-        } else {
-            None
-        }
+    fn index(&self, x: usize, y: usize) -> usize {
+        x + y * self.width
     }
 
     pub fn width(&self) -> usize {
@@ -76,137 +65,167 @@ impl FluidSimulation {
         self.height
     }
 
+    pub fn get_density_data(&self) -> *const f32 {
+        self.density.as_ptr()
+    }
+
+    pub fn add_density(&mut self, x: usize, y: usize, amount: f32) {
+        let index = self.index(x, y);
+        if index < self.density.len() {
+            self.density[index] += amount;
+        }
+    }
+
     pub fn density_at(&self, x: usize, y: usize) -> f32 {
-        self.index(x, y).map_or(0.0, |index| self.density[index])
+        let index = self.index(x, y);
+        if index < self.density.len() {
+            self.density[index]
+        } else {
+            0.0
+        }
     }
 }
 
+
 impl FluidSimulation {
     fn advect(&mut self, dt: f32) {
-        let w = self.width as isize;
-        let h = self.height as isize;
-        let mut new_density = vec![0.0; self.density.len()];
+        let width = self.width as isize;
+        let height = self.height as isize;
+        
+        let mut new_density = vec![0.0; self.width * self.height];
+        
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * self.width as isize + x) as usize;
 
-        for y in 0..h {
-            for x in 0..w {
-                if let Some(idx) = self.index(x as usize, y as usize) {
-                    let mut x0 = x as f32 - dt * self.velocity_x[idx];
-                    let mut y0 = y as f32 - dt * self.velocity_y[idx];
+                // Backtrace to find source position
+                let x_src = x as f32 - self.velocity_x[idx] * dt;
+                let y_src = y as f32 - self.velocity_y[idx] * dt;
+                
+                // Clamp source position to the grid boundaries
+                let x_src_clamped = x_src.max(0.0).min(width as f32 - 1.0);
+                let y_src_clamped = y_src.max(0.0).min(height as f32 - 1.0);
+                
+                // Bilinear interpolation
+                let x0 = x_src_clamped.floor() as isize;
+                let x1 = x0 + 1;
+                let y0 = y_src_clamped.floor() as isize;
+                let y1 = y0 + 1;
+                
+                let sx = x_src_clamped - x0 as f32;
+                let sy = y_src_clamped - y0 as f32;
+                
+                let d00 = self.density[(y0 * width + x0) as usize];
+                let d10 = if x1 < width { self.density[(y0 * width + x1) as usize] } else { d00 };
+                let d01 = if y1 < height { self.density[(y1 * width + x0) as usize] } else { d00 };
+                let d11 = if x1 < width && y1 < height { self.density[(y1 * width + x1) as usize] } else { d00 };
 
-                    if x0 < 0.0 {
-                        x0 = 0.0;
-                    }
-                    if x0 >= w as f32 {
-                        x0 = w as f32 - 1.0;
-                    }
-                    if y0 < 0.0 {
-                        y0 = 0.0;
-                    }
-                    if y0 >= h as f32 {
-                        y0 = h as f32 - 1.0;
-                    }
-
-                    let x1 = x0.floor() as usize;
-                    let y1 = y0.floor() as usize;
-                    let x2 = x1 + 1;
-                    let y2 = y1 + 1;
-
-                    let s1 = x0 - x1 as f32;
-                    let s2 = 1.0 - s1;
-                    let t1 = y0 - y1 as f32;
-                    let t2 = 1.0 - t1;
-
-                    if let (Some(idx1), Some(idx2), Some(idx3), Some(idx4)) = (
-                        self.index(x1, y1),
-                        self.index(x1, y2),
-                        self.index(x2, y1),
-                        self.index(x2, y2),
-                    ) {
-                        new_density[idx] = s2 * (t2 * self.density[idx1] + t1 * self.density[idx2])
-                            + s1 * (t2 * self.density[idx3] + t1 * self.density[idx4]);
-                    }
-                }
+                let d0 = d00 + sx * (d10 - d00);
+                let d1 = d01 + sx * (d11 - d01);
+                new_density[idx] = d0 + sy * (d1 - d0);
             }
         }
+
         self.density = new_density;
     }
+    
 
     fn diffuse(&mut self, diff: f32, dt: f32) {
-        let a = dt * diff * (self.width * self.height) as f32;
-        for _ in 0..20 {
-            for y in 1..(self.height - 1) {
-                for x in 1..(self.width - 1) {
-                    if let (Some(idx), Some(idx1), Some(idx2), Some(idx3), Some(idx4)) = (
-                        self.index(x, y),
-                        self.index(x + 1, y),
-                        self.index(x - 1, y),
-                        self.index(x, y + 1),
-                        self.index(x, y - 1),
-                    ) {
-                        self.density[idx] = (self.density[idx]
-                            + a * (self.density[idx1]
-                                + self.density[idx2]
-                                + self.density[idx3]
-                                + self.density[idx4]))
-                            / (1.0 + 4.0 * a);
-                    }
+        let a = dt * diff * (self.width as f32 - 2.0) * (self.height as f32 - 2.0);
+        let iter = 20;
+
+        for _ in 0..iter {
+            for y in 1..self.height - 1 {
+                for x in 1..self.width - 1 {
+                    let idx = y * self.width + x;
+                    self.density[idx] = (self.density[idx]
+                        + a * (self.density[idx - 1] + self.density[idx + 1]
+                                + self.density[idx - self.width] + self.density[idx + self.width]))
+                        / (1.0 + 4.0 * a);
                 }
             }
+            self.set_bnd();
         }
     }
 
+    fn set_bnd(&mut self) {
+        // Set boundary conditions (for simplicity, assume density at boundary is zero)
+        for i in 1..self.width - 1 {
+            self.density[i] = 0.0;
+            self.density[(self.height - 1) * self.width + i] = 0.0;
+        }
+        for j in 1..self.height - 1 {
+            self.density[j * self.width] = 0.0;
+            self.density[j * self.width + self.width - 1] = 0.0;
+        }
+    }
+
+
     fn project(&mut self) {
-        let h = 1.0 / self.width as f32;
-        let mut div = vec![0.0; self.density.len()];
-        let mut p = vec![0.0; self.density.len()];
-
-        for y in 1..(self.height - 1) {
-            for x in 1..(self.width - 1) {
-                if let (Some(idx), Some(idx1), Some(idx2), Some(idx3), Some(idx4)) = (
-                    self.index(x, y),
-                    self.index(x + 1, y),
-                    self.index(x - 1, y),
-                    self.index(x, y + 1),
-                    self.index(x, y - 1),
-                ) {
-                    div[idx] = -0.5
-                        * h
-                        * (self.velocity_x[idx1] - self.velocity_x[idx2] + self.velocity_y[idx3]
-                            - self.velocity_y[idx4]);
-                    p[idx] = 0.0;
-                }
+        let mut div = vec![0.0; self.width * self.height];
+        let mut p = vec![0.0; self.width * self.height];
+        
+        // Step 1: Compute Divergence
+        for y in 1..self.height - 1 {
+            for x in 1..self.width - 1 {
+                let idx = y * self.width + x;
+                div[idx] = -0.5 * (
+                    self.velocity_x[idx + 1] - self.velocity_x[idx - 1] +
+                    self.velocity_y[idx + self.width] - self.velocity_y[idx - self.width]
+                ) / self.width as f32;
+                p[idx] = 0.0;
             }
         }
 
+        self.set_bnd_p(&mut p);
+        self.set_bnd_p(&mut div);
+        
+        // Step 2: Solve Poisson Equation for Pressure
         for _ in 0..20 {
-            for y in 1..(self.height - 1) {
-                for x in 1..(self.width - 1) {
-                    if let (Some(idx), Some(idx1), Some(idx2), Some(idx3), Some(idx4)) = (
-                        self.index(x, y),
-                        self.index(x + 1, y),
-                        self.index(x - 1, y),
-                        self.index(x, y + 1),
-                        self.index(x, y - 1),
-                    ) {
-                        p[idx] = (div[idx] + p[idx1] + p[idx2] + p[idx3] + p[idx4]) / 4.0;
-                    }
+            for y in 1..self.height - 1 {
+                for x in 1..self.width - 1 {
+                    let idx = y * self.width + x;
+                    p[idx] = (div[idx] + p[idx - 1] + p[idx + 1] + p[idx - self.width] + p[idx + self.width]) / 4.0;
                 }
+            }
+            self.set_bnd_p(&mut p);
+        }
+
+        // Step 3: Subtract Gradient of Pressure from Velocity
+        for y in 1..self.height - 1 {
+            for x in 1..self.width - 1 {
+                let idx = y * self.width + x;
+                self.velocity_x[idx] -= 0.5 * (p[idx + 1] - p[idx - 1]) * self.width as f32;
+                self.velocity_y[idx] -= 0.5 * (p[idx + self.width] - p[idx - self.width]) * self.height as f32;
             }
         }
 
-        for y in 1..(self.height - 1) {
-            for x in 1..(self.width - 1) {
-                if let (Some(idx), Some(idx1), Some(idx2), Some(idx3), Some(idx4)) = (
-                    self.index(x, y),
-                    self.index(x + 1, y),
-                    self.index(x - 1, y),
-                    self.index(x, y + 1),
-                    self.index(x, y - 1),
-                ) {
-                    self.velocity_x[idx] -= 0.5 * (p[idx1] - p[idx2]) / h;
-                    self.velocity_y[idx] -= 0.5 * (p[idx3] - p[idx4]) / h;
-                }
-            }
+        self.set_bnd_velocity();
+    }
+
+    fn set_bnd_p(&self, array: &mut [f32]) {
+        for i in 1..self.width - 1 {
+            array[i] = array[self.width + i];
+            array[(self.height - 1) * self.width + i] = array[(self.height - 2) * self.width + i];
+        }
+        for j in 1..self.height - 1 {
+            array[j * self.width] = array[j * self.width + 1];
+            array[j * self.width + self.width - 1] = array[j * self.width + self.width - 2];
+        }
+    }
+
+    fn set_bnd_velocity(&mut self) {
+        for i in 1..self.width - 1 {
+            self.velocity_x[i] = self.velocity_x[self.width + i];
+            self.velocity_x[(self.height - 1) * self.width + i] = self.velocity_x[(self.height - 2) * self.width + i];
+            self.velocity_y[i] = self.velocity_y[self.width + i];
+            self.velocity_y[(self.height - 1) * self.width + i] = self.velocity_y[(self.height - 2) * self.width + i];
+        }
+        for j in 1..self.height - 1 {
+            self.velocity_x[j * self.width] = self.velocity_x[j * self.width + 1];
+            self.velocity_x[j * self.width + self.width - 1] = self.velocity_x[j * self.width + self.width - 2];
+            self.velocity_y[j * self.width] = self.velocity_y[j * self.width + 1];
+            self.velocity_y[j * self.width + self.width - 1] = self.velocity_y[j * self.width + self.width - 2];
         }
     }
 }
