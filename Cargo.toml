@@ -4,11 +4,27 @@ version = "0.0.1"
 authors = ["Mohammadreza Farkhondeh mohammr.farkhonde12@sharif.edu"]
 edition = "2021"
 
-[dependencies]
-yew = { version = "0.21", features = ["csr"] }
-wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "CanvasRenderingContext2d"] }
-gloo-timers = "0.3"
 
 [lib]
 crate-type = ["cdylib"]
+
+
+[dependencies]
+yew = { version = "0.21", features = ["csr"] }
+wasm-bindgen = "0.2"
+gloo-timers = "0.3"
+console_error_panic_hook = "0.1"
+
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "Document",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "Window",
+    "console",
+]
+
+[dependencies.js-sys]
+version = "0.3"
