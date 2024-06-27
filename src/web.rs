@@ -5,6 +5,10 @@ use yew::prelude::*;
 
 use crate::fluid_simulation::FluidSimulation;
 
+const SIM_W: usize = 256;
+const SIM_H: usize = 144;
+const SCALE: usize = 4;
+
 pub struct App {
     simulation: FluidSimulation,
     running: bool,
@@ -31,7 +35,7 @@ impl Component for App {
 
     fn create(_ctx: &Context<Self>) -> Self {
         Self {
-            simulation: FluidSimulation::new(100, 100),
+            simulation: FluidSimulation::new(SIM_W, SIM_H),
             running: false,
             viscosity: 0.1,
             diffusion: 0.1,
@@ -44,7 +48,7 @@ impl Component for App {
             Msg::Start => {
                 self.running = true;
                 let link = _ctx.link().clone();
-                self.interval = Some(Interval::new(16, move || {
+                self.interval = Some(Interval::new(100, move || {
                     link.send_message(Msg::Tick);
                 }));
                 true
@@ -55,7 +59,7 @@ impl Component for App {
                 true
             }
             Msg::Reset => {
-                self.simulation = FluidSimulation::new(100, 100);
+                self.simulation = FluidSimulation::new(SIM_W, SIM_H);
                 true
             }
             Msg::Step => {
@@ -88,9 +92,12 @@ impl Component for App {
                 true
             }
             Msg::AddDensity(x, y) => {
-                self.simulation.apply_forces(0.0, 0.0, 1.0, x, y);
+                let sim_x = x / SCALE;
+                let sim_y = y / SCALE;
+                self.simulation.add_density(sim_x, sim_y, 1000.0);
                 true
             }
+
             Msg::Tick => {
                 self.simulation.step(self.viscosity, self.diffusion);
                 self.draw();
@@ -117,14 +124,15 @@ impl Component for App {
                     <input type="range" id="speed" min="1" max="100" value="50"
                            oninput={_ctx.link().callback(|e: InputEvent| Msg::SetSpeed(e))} />
                 </div>
-                <canvas id="fluidCanvas" width="800" height="600"
-                        onmousedown={_ctx.link().callback(|e: MouseEvent| Msg::AddDensity(e.offset_x() as usize, e.offset_y() as usize))}
-                        onmousemove={_ctx.link().callback(|e: MouseEvent| Msg::AddDensity(e.offset_x() as usize, e.offset_y() as usize))}></canvas>
+                <canvas id="fluidCanvas" width={(SIM_W * SCALE).to_string()} height={(SIM_H * SCALE).to_string()}
+                        onmousedown={_ctx.link().callback(|e: MouseEvent| Msg::AddDensity(e.offset_x() as usize, e.offset_y() as usize))}>
+                </canvas>
             </div>
         }
     }
 
     fn rendered(&mut self, _ctx: &Context<Self>, first_render: bool) {
+
         if first_render {
             self.draw();
         }
@@ -144,16 +152,16 @@ impl App {
             .dyn_into()
             .unwrap();
 
-        // Clear the canvas
         context.clear_rect(0.0, 0.0, canvas.width().into(), canvas.height().into());
 
-        // Draw the density field
         for y in 0..self.simulation.height() {
             for x in 0..self.simulation.width() {
                 let density = self.simulation.density_at(x, y);
-                let color = format!("rgba(0, 0, 255, {})", density);
-                context.set_fill_style(&color.into());
-                context.fill_rect(x as f64, y as f64, 1.0, 1.0);
+                if density > 0.0 {
+                    let color = format!("rgba(0, 0, 255, {})", density.min(1.0));
+                    context.set_fill_style(&color.into());
+                    context.fill_rect((x * SCALE) as f64, (y * SCALE) as f64, SCALE as f64, SCALE as f64);
+                }
             }
         }
     }
